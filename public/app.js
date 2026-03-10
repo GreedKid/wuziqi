@@ -7,6 +7,7 @@ const roleLabel = document.getElementById("roleLabel");
 const statusLabel = document.getElementById("statusLabel");
 const turnLabel = document.getElementById("turnLabel");
 const playersLabel = document.getElementById("playersLabel");
+const roomNote = document.getElementById("roomNote");
 const lastMoveLabel = document.getElementById("lastMoveLabel");
 const resetBtn = document.getElementById("resetBtn");
 const aiBtn = document.getElementById("aiBtn");
@@ -177,6 +178,22 @@ function updateLabels() {
       ? "AI"
       : state.players?.W ? "已进入" : "等待";
     playersLabel.textContent = `玩家状态：黑棋${bState} / 白棋${wState}`;
+  }
+  if (roomNote) {
+    if (state.winner) {
+      roomNote.textContent = `对局结束：${state.winner === "B" ? "黑棋获胜" : "白棋获胜"}`;
+    } else if (state.aiEnabled) {
+      const aiSide = state.aiRole === "B" ? "黑棋AI" : "白棋AI";
+      roomNote.textContent = `与AI对局中（${aiSide}）`;
+    } else if (state.players?.B && state.players?.W) {
+      roomNote.textContent = "对弈中：黑棋/白棋均已进入";
+    } else if (state.players?.B) {
+      roomNote.textContent = "等待白棋进入";
+    } else if (state.players?.W) {
+      roomNote.textContent = "等待黑棋进入";
+    } else {
+      roomNote.textContent = "等待玩家进入";
+    }
   }
   if (lastMoveLabel) {
     if (state.lastMove) {

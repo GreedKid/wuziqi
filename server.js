@@ -1,9 +1,9 @@
-const path = require("path");
-const fs = require("fs");
+﻿const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const server = http.createServer(app);
@@ -18,138 +18,212 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-const uploadDir = path.join(__dirname, "uploads");
-const dataDir = path.join(__dirname, "data");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const notesPath = path.join(dataDir, "notes.json");
-const messagesPath = path.join(dataDir, "messages.json");
-
-function readNotes() {
-  if (!fs.existsSync(notesPath)) {
-    return {
-      story: { text: "", updatedAt: null },
-      today: { text: "", updatedAt: null },
-    };
-  }
-  try {
-    const raw = fs.readFileSync(notesPath, "utf8");
-    const data = JSON.parse(raw);
-    return {
-      story: data.story || { text: "", updatedAt: null },
-      today: data.today || { text: "", updatedAt: null },
-    };
-  } catch {
-    return {
-      story: { text: "", updatedAt: null },
-      today: { text: "", updatedAt: null },
-    };
-  }
-}
-
-function writeNotes(notes) {
-  fs.writeFileSync(notesPath, JSON.stringify(notes, null, 2), "utf8");
-}
-
-function readMessages() {
-  if (!fs.existsSync(messagesPath)) return [];
-  try {
-    const raw = fs.readFileSync(messagesPath, "utf8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeMessages(messages) {
-  fs.writeFileSync(messagesPath, JSON.stringify(messages, null, 2), "utf8");
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    cb(null, `${unique}-${safeName}`);
-  },
-});
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "photos";
+const supabase =
+  SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    : null;
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
 
-app.get("/api/photos", (req, res) => {
-  fs.readdir(uploadDir, (err, files) => {
-    if (err) return res.status(500).json({ ok: false });
-    const images = files
-      .filter((name) => /\.(png|jpe?g|gif|webp)$/i.test(name))
-      .sort()
-      .reverse()
-      .map((name) => `/uploads/${name}`);
-    res.json({ ok: true, images });
+function emptyNotes() {
+  return {
+    story: { text: "", updatedAt: null },
+    today: { text: "", updatedAt: null },
+  };
+}
+
+function sanitizeFilename(name) {
+  return (name || "photo").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function readNotesSupabase() {
+  if (!supabase) return emptyNotes();
+  const { data, error } = await supabase.from("notes").select("key,text,updated_at");
+  if (error) throw error;
+  const notes = emptyNotes();
+  (data || []).forEach((row) => {
+    if (row.key === "story") {
+      notes.story = { text: row.text || "", updatedAt: row.updated_at || null };
+    }
+    if (row.key === "today") {
+      notes.today = { text: row.text || "", updatedAt: row.updated_at || null };
+    }
   });
-});
+  return notes;
+}
 
-app.post("/api/photos", upload.array("photos", 12), (req, res) => {
-  res.json({ ok: true });
-});
-
-app.delete("/api/photos/:name", (req, res) => {
-  const name = path.basename(req.params.name || "");
-  const target = path.join(uploadDir, name);
-  if (!target.startsWith(uploadDir)) return res.status(400).json({ ok: false });
-  if (fs.existsSync(target)) fs.unlinkSync(target);
-  res.json({ ok: true });
-});
-
-app.get("/api/notes", (req, res) => {
-  res.json({ ok: true, notes: readNotes() });
-});
-
-app.post("/api/notes", (req, res) => {
-  const { story, today } = req.body || {};
-  const notes = readNotes();
-  if (story && typeof story.text === "string") {
-    notes.story = { text: story.text.slice(0, 2000), updatedAt: new Date().toISOString() };
+async function writeNotesSupabase(storyText, todayText) {
+  if (!supabase) return emptyNotes();
+  const now = new Date().toISOString();
+  const rows = [];
+  if (typeof storyText === "string") {
+    rows.push({ key: "story", text: storyText.slice(0, 2000), updated_at: now });
   }
-  if (today && typeof today.text === "string") {
-    notes.today = { text: today.text.slice(0, 1000), updatedAt: new Date().toISOString() };
+  if (typeof todayText === "string") {
+    rows.push({ key: "today", text: todayText.slice(0, 1000), updated_at: now });
   }
-  writeNotes(notes);
-  io.emit("notes", notes);
-  res.json({ ok: true, notes });
-});
+  if (rows.length === 0) return readNotesSupabase();
+  const { error } = await supabase.from("notes").upsert(rows, { onConflict: "key" });
+  if (error) throw error;
+  return readNotesSupabase();
+}
 
-app.get("/api/messages", (req, res) => {
-  res.json({ ok: true, messages: readMessages() });
-});
+async function readMessagesSupabase() {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id,text,author,created_at")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    id: row.id,
+    text: row.text,
+    author: row.author,
+    createdAt: row.created_at,
+  }));
+}
 
-app.post("/api/messages", (req, res) => {
-  const text = (req.body?.text || "").toString().trim();
-  const author = (req.body?.author || "").toString().trim();
-  if (!text) return res.status(400).json({ ok: false });
-  const messages = readMessages();
+async function addMessageSupabase(text, author) {
+  if (!supabase) return [];
   const msg = {
     id: `${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
     text: text.slice(0, 300),
-    author: author.slice(0, 20) || "未知",
-    createdAt: new Date().toISOString(),
+    author: (author || "未知").slice(0, 20),
+    created_at: new Date().toISOString(),
   };
-  messages.unshift(msg);
-  writeMessages(messages);
-  io.emit("messages", messages);
-  res.json({ ok: true, messages });
+  const { error } = await supabase.from("messages").insert(msg);
+  if (error) throw error;
+  return readMessagesSupabase();
+}
+
+async function deleteMessageSupabase(id) {
+  if (!supabase) return [];
+  const { error } = await supabase.from("messages").delete().eq("id", id);
+  if (error) throw error;
+  return readMessagesSupabase();
+}
+
+async function listPhotosSupabase() {
+  if (!supabase) return [];
+  const { data, error } = await supabase.storage.from(SUPABASE_BUCKET).list("", {
+    limit: 200,
+    offset: 0,
+    sortBy: { column: "name", order: "desc" },
+  });
+  if (error) throw error;
+  const items = (data || []).filter((item) => /\.(png|jpe?g|gif|webp)$/i.test(item.name));
+  return items.map((item) => {
+    const { data: publicData } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(item.name);
+    return publicData.publicUrl;
+  });
+}
+
+async function uploadPhotosSupabase(files) {
+  if (!supabase || !files || files.length === 0) return;
+  for (const file of files) {
+    const safeName = sanitizeFilename(file.originalname);
+    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}-${safeName}`;
+    const { error } = await supabase.storage.from(SUPABASE_BUCKET).upload(unique, file.buffer, {
+      contentType: file.mimetype,
+      upsert: false,
+    });
+    if (error) throw error;
+  }
+}
+
+async function deletePhotoSupabase(nameOrUrl) {
+  if (!supabase) return;
+  const raw = nameOrUrl || "";
+  const name = path.basename(raw.split("?")[0] || "");
+  if (!name) return;
+  const { error } = await supabase.storage.from(SUPABASE_BUCKET).remove([name]);
+  if (error) throw error;
+}
+
+app.get("/api/photos", async (req, res) => {
+  try {
+    const images = await listPhotosSupabase();
+    res.json({ ok: true, images });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "photo_list_failed" });
+  }
 });
 
-app.delete("/api/messages/:id", (req, res) => {
-  const id = req.params.id;
-  const messages = readMessages().filter((m) => m.id !== id);
-  writeMessages(messages);
-  io.emit("messages", messages);
-  res.json({ ok: true, messages });
+app.post("/api/photos", upload.array("photos", 12), async (req, res) => {
+  try {
+    await uploadPhotosSupabase(req.files || []);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "photo_upload_failed" });
+  }
+});
+
+app.delete("/api/photos/:name", async (req, res) => {
+  try {
+    await deletePhotoSupabase(req.params.name || "");
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "photo_delete_failed" });
+  }
+});
+
+app.get("/api/notes", async (req, res) => {
+  try {
+    const notes = await readNotesSupabase();
+    res.json({ ok: true, notes });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "notes_load_failed" });
+  }
+});
+
+app.post("/api/notes", async (req, res) => {
+  try {
+    const { story, today } = req.body || {};
+    const notes = await writeNotesSupabase(story?.text, today?.text);
+    io.emit("notes", notes);
+    res.json({ ok: true, notes });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "notes_save_failed" });
+  }
+});
+
+app.get("/api/messages", async (req, res) => {
+  try {
+    const messages = await readMessagesSupabase();
+    res.json({ ok: true, messages });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "messages_load_failed" });
+  }
+});
+
+app.post("/api/messages", async (req, res) => {
+  try {
+    const text = (req.body?.text || "").toString().trim();
+    const author = (req.body?.author || "").toString().trim();
+    if (!text) return res.status(400).json({ ok: false });
+    const messages = await addMessageSupabase(text, author);
+    io.emit("messages", messages);
+    res.json({ ok: true, messages });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "messages_save_failed" });
+  }
+});
+
+app.delete("/api/messages/:id", async (req, res) => {
+  try {
+    const messages = await deleteMessageSupabase(req.params.id);
+    io.emit("messages", messages);
+    res.json({ ok: true, messages });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "messages_delete_failed" });
+  }
 });
 
 function emptyBoard() {

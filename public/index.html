@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>浩浩大王和瑶瑶专属对弈棋局</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=12" />
+  </head>
+  <body>
+    <div class="backdrop">
+      <div class="grain"></div>
+      <div class="glow glow-a"></div>
+      <div class="glow glow-b"></div>
+    </div>
+    <audio id="bgm" src="audio/bgm.mp3" loop></audio>
+
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">浩浩大王和瑶瑶专属对弈棋局</p>
+          <h1>跨越距离，也能感受到每一步。</h1>
+          <p class="subhead">
+            分享房间链接，一起坐到棋盘前，让落子替你们说话。
+          </p>
+        </div>
+        <div class="panel">
+          <div class="meta">
+            <span id="roleLabel">身份：—</span>
+            <span id="statusLabel">状态：等待中</span>
+            <span id="playersLabel">玩家状态：—</span>
+            <span class="room-note">提示：进入链接即可开始对弈</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="board-area">
+        <div class="board-wrap">
+          <div id="turnBanner" class="turn-banner">轮到你落子</div>
+          <canvas id="board" width="700" height="700"></canvas>
+          <div id="resultOverlay" class="overlay hidden">
+            <div class="overlay-card">
+              <h2 id="resultTitle">胜负已分</h2>
+              <p id="resultSubtitle">—</p>
+              <div class="overlay-actions">
+                <button id="playAgainBtn">再来一局</button>
+                <button id="closeOverlayBtn" class="ghost">继续观战</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <aside class="sidebar">
+          <div class="stat">
+            <h3>当前回合</h3>
+            <p id="turnLabel">—</p>
+          </div>
+          <div class="stat">
+            <h3>最近一步</h3>
+            <p id="lastMoveLabel">—</p>
+          </div>
+          <div class="controls">
+            <button id="resetBtn" class="ghost">新的一局</button>
+          </div>
+          <div class="music">
+            <h3>背景氛围</h3>
+            <button id="musicBtn">播放音乐</button>
+            <input id="volume" type="range" min="0" max="100" value="20" />
+          </div>
+        </aside>
+      </section>
+
+      <section class="love-section">
+        <div class="love-card">
+          <h2>我们的故事</h2>
+          <p>在这里写下你们的相遇、喜欢的瞬间，或者约定的未来。</p>
+          <textarea id="storyNote" placeholder="写下你们的故事..."></textarea>
+          <div id="storyTime" class="note-time">未保存</div>
+        </div>
+        <div class="love-card">
+          <h2>今天想对你说</h2>
+          <p>小小留言板，每天更新一句只属于你们的告白。</p>
+          <textarea id="todayNote" placeholder="写下今天的心情..."></textarea>
+          <div id="todayTime" class="note-time">未保存</div>
+        </div>
+        <div class="love-card">
+          <h2>对弈约定</h2>
+          <ul class="promise-list">
+            <li>赢了请客，输了也请客</li>
+            <li>落子要轻，心意要重</li>
+            <li>每局结束都说一句喜欢</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="photo-section">
+        <div class="photo-header">
+          <div>
+            <h2>我们的照片墙</h2>
+            <p>上传你们的合照或心动瞬间</p>
+          </div>
+          <div class="photo-actions">
+            <input id="photoInput" type="file" accept="image/*" multiple />
+            <button id="uploadBtn">上传照片</button>
+          </div>
+        </div>
+        <div id="photoCarousel" class="photo-carousel">
+          <button id="photoPrev" class="carousel-btn">上一张</button>
+          <div class="carousel-frame">
+            <img id="photoMain" alt="合照" />
+            <button id="photoDelete" class="photo-delete">删除</button>
+          </div>
+          <button id="photoNext" class="carousel-btn">下一张</button>
+        </div>
+        <div id="photoDots" class="photo-dots"></div>
+      </section>
+
+      <section class="message-section">
+        <div class="message-header">
+          <div>
+            <h2>留言板</h2>
+            <p>想说的话写在这里，双方同步可见。</p>
+          </div>
+          <div class="message-actions">
+            <input id="messageInput" type="text" maxlength="300" placeholder="写下一句话..." />
+            <button id="messageBtn">发送留言</button>
+          </div>
+        </div>
+        <div id="messageList" class="message-list"></div>
+      </section>
+
+      <footer class="footer">
+        <span>提示：把邀请链接发给对方，你们都打开即可开始。</span>
+      </footer>
+    </main>
+
+    <div id="toast" class="toast hidden">上传成功</div>
+    <div id="photoLightbox" class="lightbox hidden">
+      <div class="lightbox-inner">
+        <img id="lightboxImg" alt="合照" />
+        <button id="lightboxClose" class="lightbox-close">关闭</button>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js?v=25"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@ const turnLabel = document.getElementById("turnLabel");
 const playersLabel = document.getElementById("playersLabel");
 const lastMoveLabel = document.getElementById("lastMoveLabel");
 const resetBtn = document.getElementById("resetBtn");
+const aiBtn = document.getElementById("aiBtn");
 const canvas = document.getElementById("board");
 const ctx = canvas.getContext("2d");
 const musicBtn = document.getElementById("musicBtn");
@@ -49,6 +50,8 @@ let state = {
   players: { B: null, W: null },
   winner: null,
   lastMove: null,
+  aiEnabled: false,
+  aiRole: null,
 };
 
 const cell = canvas.width / (BOARD_SIZE + 1);
@@ -158,7 +161,7 @@ function coordFromEvent(evt) {
 
 function updateLabels() {
   roleLabel.textContent = `身份：${role === "B" ? "黑棋" : role === "W" ? "白棋" : "旁观者"}`;
-  const bothReady = state.players?.B && state.players?.W;
+  const bothReady = (state.players?.B && state.players?.W) || state.aiEnabled;
   statusLabel.textContent = state.winner
     ? `状态：${state.winner === "B" ? "黑棋" : "白棋"}获胜`
     : bothReady
@@ -167,8 +170,12 @@ function updateLabels() {
   const turnText = state.turn === "B" ? "黑棋" : "白棋";
   turnLabel.textContent = turnText;
   if (playersLabel) {
-    const bState = state.players?.B ? "已进入" : "等待";
-    const wState = state.players?.W ? "已进入" : "等待";
+    const bState = state.aiEnabled && state.aiRole === "B"
+      ? "AI"
+      : state.players?.B ? "已进入" : "等待";
+    const wState = state.aiEnabled && state.aiRole === "W"
+      ? "AI"
+      : state.players?.W ? "已进入" : "等待";
     playersLabel.textContent = `玩家状态：黑棋${bState} / 白棋${wState}`;
   }
   if (lastMoveLabel) {
@@ -184,11 +191,17 @@ function updateLabels() {
       turnBanner.textContent = "对局已结束";
     } else if (role === "S") {
       turnBanner.textContent = "观战中";
+    } else if (state.aiEnabled && state.turn === state.aiRole) {
+      turnBanner.textContent = "AI思考中";
     } else if (state.turn === role) {
       turnBanner.textContent = "轮到你落子";
     } else {
       turnBanner.textContent = "等待对方落子";
     }
+  }
+  if (aiBtn) {
+    aiBtn.disabled = !!(state.players?.B && state.players?.W);
+    aiBtn.textContent = state.aiEnabled ? "关闭AI对局" : "开启AI对局（超难）";
   }
   if (state.winner) {
     if (role === "S") {
@@ -252,6 +265,21 @@ if (copyBtn) {
 resetBtn.addEventListener("click", () => {
   socket.emit("reset");
 });
+
+if (aiBtn) {
+  aiBtn.addEventListener("click", () => {
+    const target = !state.aiEnabled;
+    aiBtn.disabled = true;
+    socket.emit("ai:toggle", { enabled: target }, (res) => {
+      aiBtn.disabled = false;
+      if (!res?.ok) {
+        showToast(res?.error || "操作失败");
+        return;
+      }
+      showToast(target ? "已开启AI对局" : "已关闭AI对局");
+    });
+  });
+}
 
 playAgainBtn.addEventListener("click", () => {
   socket.emit("reset");

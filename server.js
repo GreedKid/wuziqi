@@ -269,9 +269,164 @@ function getRoom(roomId) {
       nextStarter: "B",
       winner: null,
       lastMove: null,
+      aiEnabled: false,
+      aiRole: null,
+      aiTimeout: null,
     });
   }
   return rooms.get(roomId);
+}
+
+function emitState(roomId) {
+  const room = getRoom(roomId);
+  io.to(roomId).emit("state", {
+    board: room.board,
+    turn: room.turn,
+    players: room.players,
+    winner: room.winner,
+    lastMove: room.lastMove,
+    aiEnabled: room.aiEnabled,
+    aiRole: room.aiRole,
+  });
+}
+
+function otherRole(role) {
+  return role === "B" ? "W" : "B";
+}
+
+function countPlayers(room) {
+  return (room.players.B ? 1 : 0) + (room.players.W ? 1 : 0);
+}
+
+function analyzeLine(board, r, c, dr, dc, role) {
+  let countA = 0;
+  let rr = r + dr;
+  let cc = c + dc;
+  while (rr >= 0 && rr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && board[rr][cc] === role) {
+    countA += 1;
+    rr += dr;
+    cc += dc;
+  }
+  const openA = rr >= 0 && rr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && !board[rr][cc];
+
+  let countB = 0;
+  rr = r - dr;
+  cc = c - dc;
+  while (rr >= 0 && rr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && board[rr][cc] === role) {
+    countB += 1;
+    rr -= dr;
+    cc -= dc;
+  }
+  const openB = rr >= 0 && rr < BOARD_SIZE && cc >= 0 && cc < BOARD_SIZE && !board[rr][cc];
+
+  return { total: countA + countB + 1, open: (openA ? 1 : 0) + (openB ? 1 : 0) };
+}
+
+function lineScore(total, open) {
+  if (total >= 5) return 1000000;
+  if (total === 4 && open === 2) return 100000;
+  if (total === 4 && open === 1) return 10000;
+  if (total === 3 && open === 2) return 2000;
+  if (total === 3 && open === 1) return 200;
+  if (total === 2 && open === 2) return 100;
+  if (total === 2 && open === 1) return 10;
+  if (total === 1 && open === 2) return 5;
+  return 1;
+}
+
+function evaluatePoint(board, r, c, role) {
+  const dirs = [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [1, -1],
+  ];
+  let score = 0;
+  for (const [dr, dc] of dirs) {
+    const info = analyzeLine(board, r, c, dr, dc, role);
+    score += lineScore(info.total, info.open);
+  }
+  return score;
+}
+
+function isWinningMove(board, r, c, role) {
+  board[r][c] = role;
+  const win = checkWin(board, r, c, role);
+  board[r][c] = null;
+  return win;
+}
+
+function findBestMove(board, aiRole) {
+  const humanRole = otherRole(aiRole);
+  let hasStone = false;
+  for (let r = 0; r < BOARD_SIZE; r += 1) {
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      if (board[r][c]) {
+        hasStone = true;
+        break;
+      }
+    }
+    if (hasStone) break;
+  }
+  if (!hasStone) {
+    const center = Math.floor(BOARD_SIZE / 2);
+    return { r: center, c: center };
+  }
+
+  for (let r = 0; r < BOARD_SIZE; r += 1) {
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      if (board[r][c]) continue;
+      if (isWinningMove(board, r, c, aiRole)) return { r, c };
+    }
+  }
+  for (let r = 0; r < BOARD_SIZE; r += 1) {
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      if (board[r][c]) continue;
+      if (isWinningMove(board, r, c, humanRole)) return { r, c };
+    }
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+  const center = (BOARD_SIZE - 1) / 2;
+  for (let r = 0; r < BOARD_SIZE; r += 1) {
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      if (board[r][c]) continue;
+      const scoreAI = evaluatePoint(board, r, c, aiRole);
+      const scoreHuman = evaluatePoint(board, r, c, humanRole);
+      const dist = Math.abs(r - center) + Math.abs(c - center);
+      const score = scoreAI * 1.15 + scoreHuman - dist * 0.8;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { r, c };
+      }
+    }
+  }
+  return best;
+}
+
+function aiCanMove(room) {
+  return room.aiEnabled && room.aiRole && !room.winner && room.turn === room.aiRole;
+}
+
+function scheduleAi(roomId) {
+  const room = getRoom(roomId);
+  if (!aiCanMove(room)) return;
+  if (room.aiTimeout) clearTimeout(room.aiTimeout);
+  room.aiTimeout = setTimeout(() => {
+    room.aiTimeout = null;
+    if (!aiCanMove(room)) return;
+    const move = findBestMove(room.board, room.aiRole);
+    if (!move) return;
+    room.board[move.r][move.c] = room.aiRole;
+    room.lastMove = { r: move.r, c: move.c, role: room.aiRole };
+    if (checkWin(room.board, move.r, move.c, room.aiRole)) {
+      room.winner = room.aiRole;
+    } else {
+      room.turn = otherRole(room.aiRole);
+    }
+    emitState(roomId);
+  }, 320);
 }
 
 function sanitizeRoomId(raw) {
@@ -304,13 +459,16 @@ io.on("connection", (socket) => {
     socket.data.role = role;
 
     cb?.({ ok: true, role });
-    io.to(roomId).emit("state", {
-      board: room.board,
-      turn: room.turn,
-      players: room.players,
-      winner: room.winner,
-      lastMove: room.lastMove,
-    });
+    if (room.aiEnabled && countPlayers(room) >= 2) {
+      room.aiEnabled = false;
+      room.aiRole = null;
+    }
+    if (room.aiEnabled && countPlayers(room) === 1) {
+      const humanRole = room.players.B ? "B" : "W";
+      room.aiRole = otherRole(humanRole);
+    }
+    emitState(roomId);
+    scheduleAi(roomId);
   });
 
   socket.on("move", (payload, cb) => {
@@ -349,14 +507,9 @@ io.on("connection", (socket) => {
       room.turn = role === "B" ? "W" : "B";
     }
 
-    io.to(roomId).emit("state", {
-      board: room.board,
-      turn: room.turn,
-      players: room.players,
-      winner: room.winner,
-      lastMove: room.lastMove,
-    });
+    emitState(roomId);
     cb?.({ ok: true });
+    scheduleAi(roomId);
   });
 
   socket.on("reset", () => {
@@ -381,13 +534,30 @@ io.on("connection", (socket) => {
     room.turn = "B";
     room.winner = null;
     room.lastMove = null;
-    io.to(roomId).emit("state", {
-      board: room.board,
-      turn: room.turn,
-      players: room.players,
-      winner: room.winner,
-      lastMove: room.lastMove,
-    });
+    emitState(roomId);
+    scheduleAi(roomId);
+  });
+
+  socket.on("ai:toggle", (payload, cb) => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    const enabled = !!payload?.enabled;
+    if (enabled) {
+      if (countPlayers(room) >= 2) {
+        cb?.({ ok: false, error: "已有两位玩家，无法开启AI" });
+        return;
+      }
+      const humanRole = room.players.B ? "B" : room.players.W ? "W" : "B";
+      room.aiEnabled = true;
+      room.aiRole = otherRole(humanRole);
+    } else {
+      room.aiEnabled = false;
+      room.aiRole = null;
+    }
+    emitState(roomId);
+    cb?.({ ok: true });
+    scheduleAi(roomId);
   });
 
   socket.on("disconnect", () => {
@@ -396,13 +566,11 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     if (room.players.B === socket.id) room.players.B = null;
     if (room.players.W === socket.id) room.players.W = null;
-    io.to(roomId).emit("state", {
-      board: room.board,
-      turn: room.turn,
-      players: room.players,
-      winner: room.winner,
-      lastMove: room.lastMove,
-    });
+    if (room.aiEnabled && countPlayers(room) === 0) {
+      room.aiEnabled = false;
+      room.aiRole = null;
+    }
+    emitState(roomId);
   });
 });
 

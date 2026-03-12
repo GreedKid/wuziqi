@@ -8,6 +8,7 @@ const statusLabel = document.getElementById("statusLabel");
 const turnLabel = document.getElementById("turnLabel");
 const playersLabel = document.getElementById("playersLabel");
 const roomNote = document.getElementById("roomNote");
+const meetCounter = document.getElementById("meetCounter");
 const lastMoveLabel = document.getElementById("lastMoveLabel");
 const resetBtn = document.getElementById("resetBtn");
 const aiBtn = document.getElementById("aiBtn");
@@ -349,6 +350,18 @@ joinRoom(initialRoom);
 
 drawBoard();
 updateLabels();
+
+function updateMeetCounter() {
+  if (!meetCounter) return;
+  const start = new Date(2025, 6, 17);
+  const now = new Date();
+  const diff = Math.floor((now.setHours(0, 0, 0, 0) - start.setHours(0, 0, 0, 0)) / 86400000);
+  const days = Math.max(1, diff + 1);
+  meetCounter.textContent = `相遇的第 ${days} 天`;
+}
+
+updateMeetCounter();
+setInterval(updateMeetCounter, 60 * 60 * 1000);
 
 let audioCtx = null;
 let ambientGain = null;

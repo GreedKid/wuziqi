@@ -90,6 +90,74 @@ h1 {
   color: #5a4333;
 }
 
+.meet-card {
+  margin: 14px 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-radius: 18px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 231, 238, 0.9));
+  border: 1px solid rgba(198, 92, 124, 0.35);
+  box-shadow: 0 16px 28px rgba(198, 92, 124, 0.2);
+}
+
+.meet-heart {
+  width: 34px;
+  height: 34px;
+  background: radial-gradient(circle at 30% 30%, #ffd1dc 0%, #f06a8a 55%, #c14462 100%);
+  transform: rotate(-45deg);
+  border-radius: 6px;
+  position: relative;
+  box-shadow: 0 10px 18px rgba(193, 68, 98, 0.3);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.meet-heart::before,
+.meet-heart::after {
+  content: "";
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+.meet-heart::before {
+  top: -17px;
+  left: 0;
+}
+
+.meet-heart::after {
+  left: 17px;
+  top: 0;
+}
+
+.meet-title {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #8f6b4b;
+}
+
+.meet-count {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 22px;
+  color: #4c2c36;
+}
+
+@keyframes pulse {
+  0% {
+    transform: rotate(-45deg) scale(1);
+  }
+  50% {
+    transform: rotate(-45deg) scale(1.06);
+  }
+  100% {
+    transform: rotate(-45deg) scale(1);
+  }
+}
+
 .panel {
   background: rgba(255, 255, 255, 0.74);
   border: 1px solid rgba(186, 116, 130, 0.28);
